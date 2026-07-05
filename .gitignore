@@ -1,3 +1,12 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# Local SQLite runtime state
+database/*.db
+database/*.db-shm
+database/*.db-wal

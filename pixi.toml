@@ -6,9 +6,15 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
+backend = "uvicorn backend.main:app --reload"
 
 [dependencies]
 python = ">=3.14.6,<3.15"
 
 [pypi-dependencies]
+fastapi = ">=0.116,<0.117"
 tortoise-orm = { version = ">=1.1.7, <2", extras = ["accel"] }
+pyserial = ">=3.5,<4"
+pyvisa = ">=1.14,<2"
+pyvisa-py = ">=0.7.2,<0.8"
+uvicorn = ">=0.35,<0.36"

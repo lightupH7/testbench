@@ -10,3 +10,6 @@ __pycache__/
 database/*.db
 database/*.db-shm
 database/*.db-wal
+
+# Bitstream files (too large for GitHub)
+artifacts/bitstreams/*.bit

@@ -6,7 +6,31 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/layouts/MainLayout.vue"),
     children: [
       { path: "", component: () => import("@/pages/IndexPage.vue") },
-      { path: "second", component: () => import("@/pages/SecondPage.vue") }
+      {
+        path: "manual",
+        component: () => import("@/pages/ManualProgramPage.vue"),
+        meta: { keepAlive: true }
+      },
+      {
+        path: "upload",
+        component: () => import("@/pages/UploadPage.vue"),
+        meta: { keepAlive: true }
+      },
+      {
+        path: "automation",
+        component: () => import("@/pages/AutomationPage.vue"),
+        meta: { keepAlive: true }
+      },
+      {
+        path: "records",
+        component: () => import("@/pages/TestRecordsPage.vue"),
+        meta: { keepAlive: true }
+      },
+      {
+        path: "monitor",
+        component: () => import("@/pages/MonitorPage.vue"),
+        meta: { keepAlive: true }
+      }
     ]
   },
 

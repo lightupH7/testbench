@@ -6,6 +6,12 @@ import sys
 import time
 from contextlib import contextmanager
 
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
+
 pylink = None
 
 
@@ -36,6 +42,7 @@ FLASH_BUS_WORD_BYTES = 4
 DEFAULT_PROGRAM_WINDOW_BYTES = 64
 DEFAULT_JTAG_SPEED_KHZ = 12000
 DEFAULT_ROM_INIT_DELAY = 0.1
+FALLBACK_JTAG_SPEEDS_KHZ = (12000, 8000, 4000, 2000, 1000, 400, 100)
 
 CONTROL_START = 1 << 0
 CONTROL_OP_PROG = 0x1 << 4
@@ -192,18 +199,54 @@ def dump_fc_status(jlink):
     print("    PROG_TYPE_EN = 0x{:08X}".format(r32(jlink, FC_PROG_TYPE_EN)))
 
 
+def candidate_jtag_speeds(preferred_speed):
+    speeds = [preferred_speed]
+    for speed in FALLBACK_JTAG_SPEEDS_KHZ:
+        if speed <= preferred_speed and speed not in speeds:
+            speeds.append(speed)
+    halved = preferred_speed
+    while halved > 100:
+        halved = max(100, halved // 2)
+        if halved not in speeds:
+            speeds.append(halved)
+        if halved == 100:
+            break
+    return speeds
+
+
+def connect_jlink(jlink, args, *, halt_after_connect):
+    last_error = None
+    for speed in candidate_jtag_speeds(args.jtag_speed):
+        try:
+            try:
+                jlink.close()
+            except Exception:
+                pass
+            time.sleep(0.1)
+            jlink.open()
+            jlink.set_tif(pylink.enums.JLinkInterfaces.JTAG)
+            jlink.set_speed(speed)
+            jlink.connect(args.device, verbose=False)
+            if halt_after_connect:
+                jlink.halt()
+            args.current_jtag_speed = speed
+            return speed
+        except Exception as error:  # noqa: BLE001
+            last_error = error
+    raise last_error
+
+
 def reconnect(jlink, args):
-    try:
-        jlink.close()
-    except Exception:
-        pass
     time.sleep(0.5)
-    jlink.open()
-    jlink.set_tif(pylink.enums.JLinkInterfaces.JTAG)
-    jlink.set_speed(args.jtag_speed)
-    jlink.connect(args.device, verbose=False)
-    jlink.halt()
-    print(f"    [RETRY] Reconnected to target at {args.jtag_speed} kHz")
+    previous_speed = getattr(args, "current_jtag_speed", args.jtag_speed)
+    speed = connect_jlink(jlink, args, halt_after_connect=True)
+    if speed != previous_speed:
+        print(
+            "    [RETRY] Reconnected to target at {} kHz "
+            "(requested {} kHz)".format(speed, args.jtag_speed)
+        )
+    else:
+        print("    [RETRY] Reconnected to target at {} kHz".format(speed))
 
 
 def halt_with_reconnect(jlink, args, retries=2, settle_delay=0.05):
@@ -438,11 +481,15 @@ def main():
     library = pylink.Library(dllpath=args.jlink_lib)
     jlink = pylink.JLink(lib=library)
     try:
-        jlink.open()
-        jlink.set_tif(pylink.enums.JLinkInterfaces.JTAG)
-        jlink.set_speed(args.jtag_speed)
-        jlink.connect(args.device, verbose=False)
-        print("    Connected at {} kHz".format(args.jtag_speed))
+        speed = connect_jlink(jlink, args, halt_after_connect=False)
+        if speed != args.jtag_speed:
+            print(
+                "    Connected at {} kHz (requested {} kHz)".format(
+                    speed, args.jtag_speed
+                )
+            )
+        else:
+            print("    Connected at {} kHz".format(speed))
 
         with timed_step("\n[3] Reset + ROM init ..."):
             halt_with_reconnect(jlink, args)

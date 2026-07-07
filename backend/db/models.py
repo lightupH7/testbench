@@ -8,6 +8,30 @@ class HardwareProfile(Model):
     description = fields.TextField(null=True)
     is_default = fields.BooleanField(default=False)
 
+    board_name = fields.CharField(max_length=100, null=True)
+    board_serial = fields.CharField(max_length=100, null=True)
+
+    bit_file = fields.CharField(max_length=500, null=True)
+    bit_program_channel = fields.CharField(max_length=100, null=True)
+
+    elf_file = fields.CharField(max_length=500, null=True)
+    jlink_serial = fields.CharField(max_length=100, null=True)
+    jlink_interface = fields.CharField(max_length=50, null=True)
+    jlink_device = fields.CharField(max_length=100, null=True)
+    jlink_speed_khz = fields.IntField(null=True)
+
+    uart_port = fields.CharField(max_length=100, null=True)
+    uart_baudrate = fields.IntField(default=115200)
+    uart_bytesize = fields.IntField(default=8)
+    uart_parity = fields.CharField(max_length=20, default="N")
+    uart_stopbits = fields.FloatField(default=1.0)
+    uart_timeout_ms = fields.IntField(default=1000)
+
+    scope_model = fields.CharField(max_length=100, null=True)
+    scope_ip = fields.CharField(max_length=100, null=True)
+    scope_port = fields.IntField(null=True)
+    scope_channel = fields.CharField(max_length=50, null=True)
+
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 
@@ -49,9 +73,9 @@ class TestCase(Model):
     id = fields.IntField(pk=True)
 
     name = fields.CharField(max_length=100, unique=True)
-    type = fields.CharField(max_length=80)
+    type = fields.CharField(max_length=80, null=True)
     description = fields.TextField(null=True)
-    config_json = fields.JSONField()
+    config_json = fields.JSONField(null=True)
     enabled = fields.BooleanField(default=True)
 
     created_at = fields.DatetimeField(auto_now_add=True)
@@ -65,6 +89,35 @@ class TestCase(Model):
 
     def __str__(self):
         return self.name
+
+
+class TestStep(Model):
+    id = fields.IntField(pk=True)
+
+    case = fields.ForeignKeyField(
+        "models.TestCase",
+        related_name="steps",
+        on_delete=fields.CASCADE,
+    )
+
+    order_index = fields.IntField(default=0)
+    step_type = fields.CharField(max_length=50)
+    name = fields.CharField(max_length=100)
+    config_json = fields.JSONField(default=dict)
+    expected_json = fields.JSONField(default=dict)
+    timeout_ms = fields.IntField(default=30000)
+
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    results: fields.ReverseRelation["TestStepResult"]
+
+    class Meta:
+        table = "test_steps"
+        unique_together = (("case", "order_index"),)
+
+    def __str__(self):
+        return f"{self.case_id}:{self.order_index}:{self.name}"
 
 
 class TestPlan(Model):
@@ -129,13 +182,26 @@ class TestRun(Model):
         on_delete=fields.SET_NULL,
     )
 
+    test_case = fields.ForeignKeyField(
+        "models.TestCase",
+        related_name="runs",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+
     name = fields.CharField(max_length=150, null=True)
     status = fields.CharField(max_length=50, default="pending")
     result = fields.CharField(max_length=50, null=True)
+    summary = fields.TextField(null=True)
+    error_message = fields.TextField(null=True)
 
     selected_case_ids_json = fields.JSONField(null=True)
+    profile_snapshot_json = fields.JSONField(null=True)
+    case_snapshot_json = fields.JSONField(null=True)
 
     started_at = fields.DatetimeField(null=True)
+    finished_at = fields.DatetimeField(null=True)
+    duration_ms = fields.IntField(null=True)
     ended_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
@@ -156,14 +222,30 @@ class TestStepResult(Model):
         on_delete=fields.CASCADE,
     )
 
-    name = fields.CharField(max_length=100)
-    type = fields.CharField(max_length=80)
+    test_step = fields.ForeignKeyField(
+        "models.TestStep",
+        related_name="results",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+
+    order_index = fields.IntField(default=0)
+    step_name = fields.CharField(max_length=100, null=True)
+    step_type = fields.CharField(max_length=50, null=True)
+    name = fields.CharField(max_length=100, null=True)
+    type = fields.CharField(max_length=80, null=True)
 
     status = fields.CharField(max_length=50, default="pending")
     result = fields.CharField(max_length=50, null=True)
+    message = fields.TextField(null=True)
+    stdout = fields.TextField(null=True)
+    stderr = fields.TextField(null=True)
+    data_json = fields.JSONField(null=True)
     log = fields.TextField(null=True)
 
     started_at = fields.DatetimeField(null=True)
+    finished_at = fields.DatetimeField(null=True)
+    duration_ms = fields.IntField(null=True)
     ended_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 

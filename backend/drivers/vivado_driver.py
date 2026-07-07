@@ -62,8 +62,13 @@ class VivadoDriver(BaseDriver):
     def program_bit(
         self,
         bit_path: str | Path,
+        *,
+        vivado_bin: str | None = None,
         hw_target: str | None = None,
         device: str | None = None,
+        hw_server_url: str | None = None,
+        timeout: int | None = None,
+        on_output: Any = None,
     ) -> DriverResult:
         """
         调用 Vivado TCL 脚本烧录 bit 文件。
@@ -81,23 +86,24 @@ class VivadoDriver(BaseDriver):
 
         command = self._build_program_command(
             bit_path=bit_file,
+            vivado_bin=vivado_bin or self.get_config("vivado_bin"),
             hw_target=hw_target or self.get_config("hw_target", ""),
             device=device or self.get_config("device", ""),
+            hw_server_url=hw_server_url or self.get_config("hw_server_url"),
         )
 
-        timeout = self.get_config("timeout")
+        resolved_timeout = timeout if timeout is not None else self.get_config("timeout")
 
         try:
-            completed = subprocess.run(  # noqa: S603
+            stdout_text, stderr_text, returncode = self.run_command_streaming(
                 command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                timeout=resolved_timeout,
+                on_output=on_output,
             )
         except subprocess.TimeoutExpired as exc:
             return self.fail(
                 message="vivado program bit timeout",
+                data={"command": command, "bit_path": str(bit_file)},
                 stdout=exc.stdout or "",
                 stderr=exc.stderr or "",
             )
@@ -112,30 +118,39 @@ class VivadoDriver(BaseDriver):
             "bit_path": str(bit_file),
             "hw_target": hw_target or self.get_config("hw_target", ""),
             "device": device or self.get_config("device", ""),
+            "hw_server_url": hw_server_url or self.get_config("hw_server_url"),
             "program_script": str(self._resolve_program_script()),
         }
 
-        if completed.returncode != 0:
+        if returncode != 0:
             return self.fail(
                 message="vivado program bit failed",
                 data=result_data,
-                stdout=completed.stdout,
-                stderr=completed.stderr,
-                returncode=completed.returncode,
+                stdout=stdout_text,
+                stderr=stderr_text,
+                returncode=returncode,
             )
 
         return self.ok(
             message="vivado program bit completed",
             data=result_data,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-            returncode=completed.returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            returncode=returncode,
         )
 
-    def _resolve_vivado_bin(self) -> Path | None:
-        configured = self.get_config("vivado_bin")
+    def _resolve_vivado_bin(self, configured: str | Path | None = None) -> Path | None:
+        configured = configured or self.get_config("vivado_bin")
         if configured:
-            return Path(configured).expanduser().resolve()
+            configured_str = str(configured)
+            has_path_hint = any(separator in configured_str for separator in ("/", "\\"))
+            if has_path_hint:
+                return Path(configured_str).expanduser().resolve()
+
+            found = shutil.which(configured_str)
+            if found is None:
+                return None
+            return Path(found).resolve()
 
         found = shutil.which("vivado")
         if found is None:
@@ -173,22 +188,25 @@ class VivadoDriver(BaseDriver):
     def _build_program_command(
         self,
         bit_path: Path,
+        vivado_bin: str | Path | None,
         hw_target: str,
         device: str,
+        hw_server_url: str | None,
     ) -> list[str]:
         python_bin = self._resolve_python_bin()
-        vivado_bin = self._resolve_vivado_bin()
+        resolved_vivado_bin = self._resolve_vivado_bin(vivado_bin)
         program_script = self._resolve_program_script()
         if python_bin is None:
             raise RuntimeError("python executable not resolved")
-        if vivado_bin is None:
+        if resolved_vivado_bin is None:
             raise RuntimeError("vivado executable not resolved")
 
         command = [
             str(python_bin),
+            "-u",
             str(program_script),
             "--vivado-bin",
-            str(vivado_bin),
+            str(resolved_vivado_bin),
             "--bit",
             str(bit_path),
         ]
@@ -196,6 +214,8 @@ class VivadoDriver(BaseDriver):
             command.extend(["--hw-target", hw_target])
         if device:
             command.extend(["--device", device])
+        if hw_server_url:
+            command.extend(["--hw-server-url", hw_server_url])
         if self.get_config("keep_tcl", False):
             command.append("--keep-tcl")
         return command

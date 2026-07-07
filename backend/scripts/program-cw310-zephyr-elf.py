@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Sequence
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
+
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ELF = REPO_ROOT / "zephyr_elf" / "zephyr.elf"
 DEFAULT_BIN = REPO_ROOT / "zephyr_elf" / "zephyr.flash.bin"
@@ -173,11 +179,11 @@ def python_has_pylink(command: Sequence[str]) -> bool:
 
 def select_pylink_python() -> list[str] | None:
     candidates = [
-        ["python3"],
-        ["pixi", "run", "python"],
+        ["python3", "-u"],
+        ["pixi", "run", "python", "-u"],
     ]
     if DEFAULT_OPENTITAN_ENV_PYTHON.is_file():
-        candidates.append([str(DEFAULT_OPENTITAN_ENV_PYTHON)])
+        candidates.append([str(DEFAULT_OPENTITAN_ENV_PYTHON), "-u"])
 
     for candidate in candidates:
         if python_has_pylink(candidate):

@@ -5,14 +5,22 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
 
 
 TCL_TEMPLATE = r"""
 set bitfile __BITFILE__
 set hw_target_pattern __HW_TARGET__
 set device_pattern __DEVICE__
+set hw_server_url __HW_SERVER_URL__
 
 proc fail_and_exit {message code} {
     puts "ERROR: $message"
@@ -31,7 +39,11 @@ if {![file exists $bitfile]} {
 }
 
 open_hw_manager
-connect_hw_server
+if {$hw_server_url ne ""} {
+    connect_hw_server -url $hw_server_url
+} else {
+    connect_hw_server
+}
 
 set all_targets [get_hw_targets]
 if {[llength $all_targets] == 0} {
@@ -105,6 +117,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vivado-bin", default="", help="Path to vivado executable")
     parser.add_argument("--hw-target", default="", help="Vivado hw_target pattern")
     parser.add_argument("--device", default="", help="Vivado hw_device name or pattern")
+    parser.add_argument("--hw-server-url", default="", help="Vivado hw_server URL")
     parser.add_argument("--keep-tcl", action="store_true", help="Keep generated TCL file for debugging")
     parser.add_argument("--dry-run", action="store_true", help="Print command without executing Vivado")
     return parser.parse_args()
@@ -116,10 +129,17 @@ def tcl_quote(value: str) -> str:
 
 def resolve_vivado_bin(configured: str) -> Path:
     if configured:
-        path = Path(configured).expanduser().resolve()
-        if not path.exists():
-            raise SystemExit(f"vivado executable not found: {path}")
-        return path
+        has_path_hint = any(separator in configured for separator in ("/", "\\"))
+        if has_path_hint:
+            path = Path(configured).expanduser().resolve()
+            if not path.exists():
+                raise SystemExit(f"vivado executable not found: {path}")
+            return path
+
+        found = shutil.which(configured)
+        if found is None:
+            raise SystemExit(f"vivado executable not found on PATH: {configured}")
+        return Path(found).resolve()
 
     found = shutil.which("vivado")
     if found is None:
@@ -127,12 +147,13 @@ def resolve_vivado_bin(configured: str) -> Path:
     return Path(found).resolve()
 
 
-def build_tcl(bit_path: Path, hw_target: str, device: str) -> str:
+def build_tcl(bit_path: Path, hw_target: str, device: str, hw_server_url: str) -> str:
     return (
         TCL_TEMPLATE
         .replace("__BITFILE__", tcl_quote(str(bit_path)))
         .replace("__HW_TARGET__", tcl_quote(hw_target))
         .replace("__DEVICE__", tcl_quote(device))
+        .replace("__HW_SERVER_URL__", tcl_quote(hw_server_url))
     )
 
 
@@ -147,6 +168,7 @@ def main() -> None:
         bit_path=bit_path,
         hw_target=args.hw_target,
         device=args.device,
+        hw_server_url=args.hw_server_url,
     )
 
     temp_path: Path | None = None

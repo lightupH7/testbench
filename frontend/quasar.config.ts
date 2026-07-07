@@ -46,7 +46,7 @@ export default defineConfig((/* ctx */) => {
       // https://v2.quasar.dev/quasar-cli-vite/page-routing-with-vue-router#filename-based-routing
       // filenameBasedRouting: true,
 
-      vueRouterMode: "hash" // available values: 'hash', 'history'
+      vueRouterMode: "hash", // available values: 'hash', 'history'
       // vueRouterBase,
       // vueDevtools,
 
@@ -57,7 +57,21 @@ export default defineConfig((/* ctx */) => {
       // minify: false,
       // distDir
 
-      // extendViteConf (viteConf) {},
+      extendViteConf(viteConf) {
+        viteConf.server ??= {};
+        viteConf.server.watch = {
+          usePolling: true,
+          interval: 250,
+          ignored: [
+            "**/.git/**",
+            "**/.pixi/**",
+            "**/node_modules/**",
+            "**/artifacts/**",
+            "**/database/**",
+            "**/backend/**"
+          ]
+        };
+      },
       // viteVuePluginOptions: {},
 
       // vitePlugins: [
@@ -67,8 +81,16 @@ export default defineConfig((/* ctx */) => {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver
     devServer: {
+      host: "127.0.0.1",
+      port: 9000,
       // https: true,
-      open: true // opens browser window automatically
+      open: true, // opens browser window automatically
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true
+        }
+      }
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework

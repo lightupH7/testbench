@@ -6,7 +6,9 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
-backend = "uvicorn backend.main:app --reload"
+backend = "uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload"
+frontend = { cmd = "pnpm build", cwd = "frontend" }
+dev = "bash -lc 'cd frontend && pnpm build && cd .. && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload'"
 
 [dependencies]
 python = ">=3.14.6,<3.15"
@@ -18,3 +20,4 @@ pyserial = ">=3.5,<4"
 pyvisa = ">=1.14,<2"
 pyvisa-py = ">=0.7.2,<0.8"
 uvicorn = ">=0.35,<0.36"
+websockets = ">=15,<16"

@@ -190,6 +190,36 @@ class UartDriver(BaseDriver):
             stdout=text,
         )
 
+    def read_available(
+        self,
+        max_size: int = 4096,
+        decode: bool = False,
+        encoding: str = "utf-8",
+        errors: str = "replace",
+    ) -> DriverResult:
+        """
+        读取当前串口缓冲区里可用的数据。
+        """
+        connection_error = self.ensure_connected()
+        if connection_error is not None:
+            return connection_error
+
+        try:
+            waiting = getattr(self._serial, "in_waiting", 0)
+            size = max(1, min(int(waiting) if waiting else 1, max_size))
+            raw = self._serial.read(size=size)
+        except (SerialException, OSError, ValueError) as exc:
+            return self.fail(
+                message=f"failed to read available uart data: {exc}",
+                stderr=str(exc),
+            )
+
+        return self.ok(
+            message="uart available data read completed",
+            data=self._decode_bytes(raw, decode=decode, encoding=encoding, errors=errors),
+            stdout=self._decode_text(raw, encoding=encoding, errors=errors),
+        )
+
     def read_until(
         self,
         expected: str | bytes,

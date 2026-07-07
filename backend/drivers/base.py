@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import subprocess
+import threading
 from typing import Any, Iterable
 
 
@@ -140,6 +142,59 @@ class BaseDriver(ABC):
             message=f"{action} completed",
             data=result,
         )
+
+    def run_command_streaming(
+        self,
+        command: list[str],
+        *,
+        timeout: float | None = None,
+        on_output: Any = None,
+    ) -> tuple[str, str, int]:
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        process = subprocess.Popen(  # noqa: S603
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        def reader(stream: Any, target: list[str], channel: str) -> None:
+            try:
+                for line in iter(stream.readline, ""):
+                    target.append(line)
+                    if on_output is not None:
+                        on_output(channel, line)
+            finally:
+                stream.close()
+
+        stdout_thread = threading.Thread(
+            target=reader,
+            args=(process.stdout, stdout_chunks, "stdout"),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=reader,
+            args=(process.stderr, stderr_chunks, "stderr"),
+            daemon=True,
+        )
+
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            returncode = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            raise
+
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+        return ("".join(stdout_chunks), "".join(stderr_chunks), returncode)
 
     def ok(self, message: str = "", **kwargs: Any) -> DriverResult:
         """

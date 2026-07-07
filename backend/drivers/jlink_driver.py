@@ -57,8 +57,10 @@ class JLinkDriver(BaseDriver):
         elf_path: str | Path,
         *,
         jtag_speed: int | None = None,
+        speed: int | None = None,
         jlink_lib: str | None = None,
         jlink_device: str | None = None,
+        device: str | None = None,
         interface: str | None = None,
         expected_entry: int | str | None = None,
         flash_base: int | str | None = None,
@@ -68,6 +70,8 @@ class JLinkDriver(BaseDriver):
         method: str | None = None,
         program_bitstream: bool | None = None,
         keep_bin: bool | None = None,
+        timeout: int | None = None,
+        on_output: Any = None,
     ) -> DriverResult:
         """
         调用 Python 烧录脚本烧录 ELF。
@@ -85,9 +89,9 @@ class JLinkDriver(BaseDriver):
 
         command = self._build_program_command(
             elf_path=elf_file,
-            jtag_speed=jtag_speed,
+            jtag_speed=jtag_speed if jtag_speed is not None else speed,
             jlink_lib=jlink_lib,
-            jlink_device=jlink_device,
+            jlink_device=jlink_device or device,
             interface=interface,
             expected_entry=expected_entry,
             flash_base=flash_base,
@@ -99,15 +103,13 @@ class JLinkDriver(BaseDriver):
             keep_bin=keep_bin,
         )
 
-        timeout = self.get_config("timeout")
+        resolved_timeout = timeout if timeout is not None else self.get_config("timeout")
 
         try:
-            completed = subprocess.run(  # noqa: S603
+            stdout_text, stderr_text, returncode = self.run_command_streaming(
                 command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                timeout=resolved_timeout,
+                on_output=on_output,
             )
         except subprocess.TimeoutExpired as exc:
             return self.fail(
@@ -127,24 +129,28 @@ class JLinkDriver(BaseDriver):
             "command": command,
             "elf_path": str(elf_file),
             "method": method or self.get_config("method", "pylink"),
-            "jtag_speed": jtag_speed if jtag_speed is not None else self.get_config("jtag_speed"),
+            "jtag_speed": (
+                jtag_speed if jtag_speed is not None else speed if speed is not None else self.get_config("jtag_speed")
+            ),
+            "jlink_device": jlink_device or device or self.get_config("jlink_device"),
+            "interface": interface or self.get_config("interface"),
         }
 
-        if completed.returncode != 0:
+        if returncode != 0:
             return self.fail(
                 message="jlink program elf failed",
                 data=result_data,
-                stdout=completed.stdout,
-                stderr=completed.stderr,
-                returncode=completed.returncode,
+                stdout=stdout_text,
+                stderr=stderr_text,
+                returncode=returncode,
             )
 
         return self.ok(
             message="jlink program elf completed",
             data=result_data,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-            returncode=completed.returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            returncode=returncode,
         )
 
     def _resolve_python_bin(self) -> Path | None:
@@ -193,6 +199,7 @@ class JLinkDriver(BaseDriver):
 
         command = [
             str(python_bin),
+            "-u",
             str(script_path),
             "--elf",
             str(elf_path),

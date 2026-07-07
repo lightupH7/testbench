@@ -13,3 +13,10 @@ database/*.db-wal
 
 # Bitstream files (too large for GitHub)
 artifacts/bitstreams/*.bit
+
+# Compiled firmware/binaries (build artifacts)
+artifacts/firmware/*.elf
+backend/zephyr_elf/*.bin
+
+# IDE settings
+**/.vscode/

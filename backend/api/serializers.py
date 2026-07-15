@@ -86,6 +86,7 @@ def serialize_test_step(step: TestStep) -> dict[str, Any]:
         "config_json": step.config_json,
         "expected_json": step.expected_json,
         "timeout_ms": step.timeout_ms,
+        "continue_on_failure": step.continue_on_failure,
         "created_at": serialize_datetime(step.created_at),
         "updated_at": serialize_datetime(step.updated_at),
     }

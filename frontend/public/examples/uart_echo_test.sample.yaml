@@ -1,0 +1,210 @@
+# 测试运行 YAML 示例模板。
+# 请使用 UTF-8 编码编辑和保存这个文件，避免中文或串口文本出现乱码。
+# 使用方法：
+# 1. 在“上传文件”页面下载并修改这个示例文件。
+# 2. 按实际硬件环境填写 hardware 里的板卡、串口、J-Link、示波器参数。
+# 3. 按测试需求修改 steps 里的执行步骤。
+# 4. 上传后可选择“上传并运行”或“导入并运行”。
+#
+# 说明：
+# 1. steps 下的每一个条目，都会被导入为一个测试步骤。
+# 2. continue_on_failure 的含义如下：
+#    false：当前步骤失败后立即停止整个测试流程。
+#    true：记录当前步骤失败或报错，然后继续执行后续步骤。
+# 3. 每个 step 通用字段说明：
+#    name：步骤名称，建议写成便于识别的中文或业务名称。
+#    type：步骤类型，决定当前步骤执行什么操作。
+#    timeout_ms：这个步骤允许执行的最长时间，单位是毫秒。
+#    continue_on_failure：失败后是否继续执行后续步骤。
+#    params：当前步骤的执行参数。
+#    expected：期望结果校验规则；不是所有步骤都必须填写。
+#
+# 当前示例中每种 step 的作用和参数说明：
+#
+# 1. type: program_bit
+#    作用：烧录 FPGA bit 文件。
+#    params.bit_file：可选，单独指定要烧录的 bit 文件路径；
+#      不填写时默认使用 hardware.bit.file。
+#    params.keep_tcl：是否保留烧录过程中生成的 TCL 文件；
+#      true 表示保留，false 表示执行后清理。
+#
+# 2. type: program_elf
+#    作用：通过 J-Link 烧录 ELF 固件。
+#    params.elf_file：可选，单独指定要烧录的 ELF 文件路径；
+#      不填写时默认使用 hardware.elf.file。
+#    params.jtag_speed：J-Link 烧录速度，单位通常是 kHz。
+#
+# 3. type: sleep
+#    作用：等待一段时间，常用于烧录完成后给固件留启动时间。
+#    params.seconds：等待秒数，可以填整数或小数。
+#
+# 4. type: uart_wait
+#    作用：等待串口输出中出现指定内容。
+#    params.expect_contains：期望在串口输出中看到的关键字或文本。
+#    params.read_timeout_ms：本次串口读取等待超时时间，单位毫秒。
+#    params.encoding：串口文本解码方式，建议保持 utf-8。
+#
+# 5. type: uart_query
+#    作用：向串口发送一段内容，并检查返回结果。
+#    params.send：要发送的文本内容。
+#    params.command：也是发送内容；适合表达“发送一条命令”的场景。
+#      send 和 command 二选一填写即可，按项目约定统一使用一种更清晰。
+#    params.append_newline：发送后是否自动追加换行。
+#    params.read_timeout_ms：发送后等待返回的超时时间，单位毫秒。
+#    params.encoding：串口文本编码方式，建议保持 utf-8。
+#    params.expect_contains：可选，直接在当前步骤里声明返回内容必须包含的文本。
+#    expected.contains：可选，也可以把“返回结果必须包含什么”写在 expected 里。
+#
+# 6. type: scope_measure
+#    作用：读取示波器某个通道的测量值并做范围校验。
+#    params.channel：要测量的通道，例如 CH1、CH2。
+#    params.measurement：测量类型。
+#      freq 表示频率，vpp 表示峰峰值，其他可按系统支持的测量项填写。
+#    expected.min：允许的最小值。
+#    expected.max：允许的最大值。
+#    expected.unit：测量单位，例如 Hz、V。
+#
+# 7. type: assert_value
+#    作用：对一个数值做范围断言，常用于校验前面步骤产出的数值。
+#    params.value：要校验的数值。
+#    expected.min：允许的最小值。
+#    expected.max：允许的最大值。
+#
+# 8. type: assert_text
+#    作用：对一段文本做内容断言。
+#    params.text：要检查的文本内容。
+#    expected.contains：期望文本中必须包含的关键字或片段。
+name: fpga_uart_scope_smoke_test
+description: Program FPGA/firmware, verify boot over UART, and check one scope measurement.
+
+hardware:
+  board: CW310
+  board_serial: ""
+
+  bit:
+    file: artifacts/bitstreams/lowrisc_systems_chip.bit
+    channel: auto
+
+  elf:
+    file: artifacts/firmware/testbench_case1.elf
+
+  jlink:
+    device: RISC-V
+    interface: JTAG
+    speed_khz: 4000
+    serial: ""
+
+  uart:
+    port: /dev/ttyUSB0
+    baudrate: 115200
+    bytesize: 8
+    parity: N
+    stopbits: 1
+    timeout_s: 2
+
+  scope:
+    model: siglent
+    ip: 192.168.31.28
+    port: 5025
+    channel: CH1
+
+steps:
+  - name: Program FPGA bit
+    type: program_bit
+    timeout_ms: 120000
+    continue_on_failure: false
+    params:
+      # 可选覆盖项；如果不填写，则默认使用 hardware.bit.file。
+      # bit_file: artifacts/bitstreams/lowrisc_systems_chip.bit
+      keep_tcl: false
+
+  - name: Program ELF
+    type: program_elf
+    timeout_ms: 30000
+    continue_on_failure: false
+    params:
+      # 可选覆盖项；如果不填写，则默认使用 hardware.elf.file。
+      # elf_file: artifacts/firmware/testbench_case1.elf
+      jtag_speed: 4000
+
+  - name: Let firmware boot
+    type: sleep
+    timeout_ms: 5000
+    continue_on_failure: false
+    params:
+      seconds: 1
+
+  - name: Wait UART ready
+    type: uart_wait
+    timeout_ms: 10000
+    continue_on_failure: false
+    params:
+      expect_contains: "READY"
+      read_timeout_ms: 10000
+      encoding: utf-8
+
+  - name: UART echo test
+    type: uart_query
+    timeout_ms: 3000
+    continue_on_failure: false
+    params:
+      send: "hello"
+      append_newline: true
+      read_timeout_ms: 3000
+      encoding: utf-8
+      expect_contains: "hello"
+
+  - name: UART command returns OK
+    type: uart_query
+    timeout_ms: 5000
+    continue_on_failure: false
+    params:
+      command: "status"
+      append_newline: true
+      read_timeout_ms: 3000
+      encoding: utf-8
+    expected:
+      contains: "OK"
+
+  - name: Measure CH1 frequency around 1 MHz
+    type: scope_measure
+    timeout_ms: 5000
+    continue_on_failure: true
+    params:
+      channel: CH1
+      measurement: freq
+    expected:
+      min: 990000
+      max: 1010000
+      unit: Hz
+
+  - name: Measure CH1 VPP
+    type: scope_measure
+    timeout_ms: 5000
+    continue_on_failure: true
+    params:
+      channel: CH1
+      measurement: vpp
+    expected:
+      min: 0.2
+      max: 3.3
+      unit: V
+
+  - name: Numeric sanity assertion
+    type: assert_value
+    timeout_ms: 1000
+    continue_on_failure: true
+    params:
+      value: 1
+    expected:
+      min: 0
+      max: 2
+
+  - name: Text sanity assertion
+    type: assert_text
+    timeout_ms: 1000
+    continue_on_failure: true
+    params:
+      text: "READY OK"
+    expected:
+      contains: "OK"

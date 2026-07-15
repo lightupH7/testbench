@@ -153,6 +153,99 @@ class JLinkDriver(BaseDriver):
             returncode=returncode,
         )
 
+    def control_target(
+        self,
+        action: str,
+        *,
+        jlink_lib: str | None = None,
+        jlink_serial: str | None = None,
+        jlink_device: str | None = None,
+        interface: str | None = None,
+        speed: int | None = None,
+        timeout: int | None = None,
+    ) -> DriverResult:
+        python_bin = self._resolve_python_bin()
+        if python_bin is None:
+            return self.fail("python executable not found for jlink control")
+
+        script_path = self._resolve_control_script()
+        if not script_path.exists():
+            return self.fail(
+                message="jlink control script not found",
+                data={"script": str(script_path)},
+            )
+
+        command = [
+            str(python_bin),
+            "-u",
+            str(script_path),
+            action,
+        ]
+
+        resolved_jlink_lib = jlink_lib or self.get_config("jlink_lib")
+        if resolved_jlink_lib:
+            command.extend(["--jlink-lib", str(resolved_jlink_lib)])
+
+        resolved_jlink_serial = jlink_serial or self.get_config("jlink_serial")
+        if resolved_jlink_serial:
+            command.extend(["--jlink-serial", str(resolved_jlink_serial)])
+
+        resolved_jlink_device = jlink_device or self.get_config("jlink_device")
+        if resolved_jlink_device:
+            command.extend(["--jlink-device", str(resolved_jlink_device)])
+
+        resolved_interface = interface or self.get_config("interface")
+        if resolved_interface:
+            command.extend(["--interface", str(resolved_interface)])
+
+        resolved_speed = speed if speed is not None else self.get_config("jtag_speed")
+        if resolved_speed:
+            command.extend(["--speed", str(resolved_speed)])
+
+        try:
+            stdout_text, stderr_text, returncode = self.run_command_streaming(
+                command,
+                timeout=timeout if timeout is not None else self.get_config("timeout", 30),
+            )
+        except subprocess.TimeoutExpired as exc:
+            return self.fail(
+                message="jlink control timeout",
+                data={"command": command, "action": action},
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "",
+            )
+        except OSError as exc:
+            return self.fail(
+                message=f"failed to launch jlink control: {exc}",
+                data={"command": command, "action": action},
+                stderr=str(exc),
+            )
+
+        result_data = {
+            "command": command,
+            "action": action,
+            "jlink_device": resolved_jlink_device,
+            "interface": resolved_interface,
+            "speed": resolved_speed,
+        }
+
+        if returncode != 0:
+            return self.fail(
+                message="jlink control failed",
+                data=result_data,
+                stdout=stdout_text,
+                stderr=stderr_text,
+                returncode=returncode,
+            )
+
+        return self.ok(
+            message="jlink control completed",
+            data=result_data,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            returncode=returncode,
+        )
+
     def _resolve_python_bin(self) -> Path | None:
         configured = self.get_config("python_bin")
         if configured:
@@ -172,6 +265,12 @@ class JLinkDriver(BaseDriver):
         if configured:
             return Path(configured).expanduser().resolve()
         return Path(__file__).resolve().parents[1] / "scripts" / "program-cw310-zephyr-elf.py"
+
+    def _resolve_control_script(self) -> Path:
+        configured = self.get_config("control_script")
+        if configured:
+            return Path(configured).expanduser().resolve()
+        return Path(__file__).resolve().parents[1] / "scripts" / "jlink_control.py"
 
     def _build_program_command(
         self,

@@ -162,9 +162,9 @@ def save_step(case_id: int, payload: dict[str, Any], step_id: int | None = None)
                 """
                 insert into test_steps (
                     case_id, order_index, step_type, name, config_json, expected_json,
-                    timeout_ms, created_at, updated_at
+                    timeout_ms, continue_on_failure, created_at, updated_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     case_id,
@@ -174,6 +174,7 @@ def save_step(case_id: int, payload: dict[str, Any], step_id: int | None = None)
                     json.dumps(payload.get("config_json") or {}),
                     json.dumps(payload.get("expected_json") or {}),
                     payload["timeout_ms"],
+                    int(bool(payload.get("continue_on_failure", False))),
                     now,
                     now,
                 ),
@@ -184,7 +185,7 @@ def save_step(case_id: int, payload: dict[str, Any], step_id: int | None = None)
                 """
                 update test_steps
                 set order_index = ?, step_type = ?, name = ?, config_json = ?,
-                    expected_json = ?, timeout_ms = ?, updated_at = ?
+                    expected_json = ?, timeout_ms = ?, continue_on_failure = ?, updated_at = ?
                 where id = ?
                 """,
                 (
@@ -194,6 +195,7 @@ def save_step(case_id: int, payload: dict[str, Any], step_id: int | None = None)
                     json.dumps(payload.get("config_json") or {}),
                     json.dumps(payload.get("expected_json") or {}),
                     payload["timeout_ms"],
+                    int(bool(payload.get("continue_on_failure", False))),
                     now,
                     step_id,
                 ),
@@ -300,6 +302,7 @@ async def enqueue_run(profile_id: int, case_id: int, name: str | None = None) ->
     if detail is None:
         raise RuntimeError("created test run could not be loaded")
     return detail
+
 
 
 async def ensure_worker_running() -> None:
@@ -485,10 +488,14 @@ async def _execute_queued_run(run: dict[str, Any]) -> None:
         _insert_step_result(run["id"], step, result, step_status, step_started, step_finished)
         _update_run_progress(run["id"], index, len(steps))
         if step_status != "passed":
-            final_status = "failed" if step_status == "failed" else "error"
+            step_final_status = "failed" if step_status == "failed" else "error"
+            if final_status != "error":
+                final_status = step_final_status
             summary = "测试失败" if final_status == "failed" else "测试异常"
-            error_message = result.message
-            break
+            error_message = f"{step['name']}: {result.message}"
+            if not step.get("continue_on_failure", False):
+                break
+            summary = "测试失败，已按配置继续执行后续步骤"
 
     _finish_run(
         run["id"],
@@ -570,6 +577,7 @@ def _step_from_row(row: sqlite3.Row) -> dict[str, Any]:
     payload["case_id"] = payload.pop("case_id")
     payload["config_json"] = _loads(payload.get("config_json"), {})
     payload["expected_json"] = _loads(payload.get("expected_json"), {})
+    payload["continue_on_failure"] = bool(payload.get("continue_on_failure"))
     return payload
 
 

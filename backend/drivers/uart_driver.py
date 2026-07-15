@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+import threading
 import time
 from typing import Any
 
@@ -13,6 +15,15 @@ except ImportError:  # pragma: no cover
     SerialException = Exception
 
 
+def _serial_supports_exclusive() -> bool:
+    if serial is None:
+        return False
+    try:
+        return "exclusive" in inspect.signature(serial.Serial).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 class UartDriver(BaseDriver):
     """
     UART 驱动。
@@ -24,6 +35,10 @@ class UartDriver(BaseDriver):
     def __init__(self, name: str = "uart", config: dict[str, Any] | None = None):
         super().__init__(name=name, config=config)
         self._serial: Any = None
+        self._reserved_port: str | None = None
+
+    _reserved_ports: set[str] = set()
+    _reservation_lock = threading.Lock()
 
     def connect(self) -> DriverResult:
         """
@@ -42,23 +57,36 @@ class UartDriver(BaseDriver):
         baudrate = int(self.get_config("baudrate", 115200))
         timeout = self.get_config("timeout", 1.0)
         write_timeout = self.get_config("write_timeout", timeout)
+        port = str(self.get_config("port"))
+        exclusive = bool(self.get_config("exclusive", True))
+
+        if exclusive and not self._reserve_port(port):
+            return self.fail(
+                message=f"failed to open uart: {port} is already in use",
+                stderr=f"{port} is already reserved by another UART task",
+            )
+
+        serial_kwargs = {
+            "port": port,
+            "baudrate": baudrate,
+            "bytesize": self.get_config("bytesize", serial.EIGHTBITS),
+            "parity": self.get_config("parity", serial.PARITY_NONE),
+            "stopbits": self.get_config("stopbits", serial.STOPBITS_ONE),
+            "timeout": timeout,
+            "write_timeout": write_timeout,
+            "xonxoff": self.get_config("xonxoff", False),
+            "rtscts": self.get_config("rtscts", False),
+            "dsrdtr": self.get_config("dsrdtr", False),
+        }
+        if _serial_supports_exclusive():
+            serial_kwargs["exclusive"] = exclusive
 
         try:
-            self._serial = serial.Serial(
-                port=self.get_config("port"),
-                baudrate=baudrate,
-                bytesize=self.get_config("bytesize", serial.EIGHTBITS),
-                parity=self.get_config("parity", serial.PARITY_NONE),
-                stopbits=self.get_config("stopbits", serial.STOPBITS_ONE),
-                timeout=timeout,
-                write_timeout=write_timeout,
-                xonxoff=self.get_config("xonxoff", False),
-                rtscts=self.get_config("rtscts", False),
-                dsrdtr=self.get_config("dsrdtr", False),
-            )
-        except (SerialException, ValueError, OSError) as exc:
+            self._serial = serial.Serial(**serial_kwargs)
+        except (SerialException, TypeError, ValueError, OSError) as exc:
             self._serial = None
             self.set_connected(False)
+            self._release_reserved_port()
             return self.fail(
                 message=f"failed to open uart: {exc}",
                 stderr=str(exc),
@@ -68,7 +96,7 @@ class UartDriver(BaseDriver):
         return self.ok(
             message="uart connected",
             data={
-                "port": self.get_config("port"),
+                "port": port,
                 "baudrate": baudrate,
                 "timeout": timeout,
             },
@@ -93,6 +121,7 @@ class UartDriver(BaseDriver):
         finally:
             self._serial = None
             self.set_connected(False)
+            self._release_reserved_port()
 
         return self.ok("uart closed")
 
@@ -326,3 +355,18 @@ class UartDriver(BaseDriver):
 
     def _decode_text(self, raw: bytes, encoding: str, errors: str) -> str:
         return raw.decode(encoding, errors=errors)
+
+    def _reserve_port(self, port: str) -> bool:
+        with self._reservation_lock:
+            if port in self._reserved_ports:
+                return False
+            self._reserved_ports.add(port)
+            self._reserved_port = port
+            return True
+
+    def _release_reserved_port(self) -> None:
+        if self._reserved_port is None:
+            return
+        with self._reservation_lock:
+            self._reserved_ports.discard(self._reserved_port)
+        self._reserved_port = None

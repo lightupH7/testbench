@@ -1,10 +1,10 @@
 <template>
   <q-page class="page">
     <section class="page-section">
-      <div class="section-head">
-        <div class="section-kicker">Upload</div>
-        <h1 class="section-title">Upload Test Files</h1>
-      </div>
+        <div class="section-head">
+          <div class="section-kicker">Upload</div>
+          <h1 class="section-title">File Management</h1>
+        </div>
 
       <div class="upload-grid">
         <section class="surface-block">
@@ -18,8 +18,7 @@
             outlined
             dense
             clearable
-            accept=".bit"
-            label="Select Bit File"
+            label="Select File"
           >
             <template #prepend>
               <q-icon name="memory" />
@@ -33,7 +32,7 @@
               unelevated
               no-caps
               icon="upload_file"
-              label="Upload Bit"
+              label="Upload File"
               :loading="uploadingType === 'bit'"
               :disable="!bitFile || uploadingType !== null"
               @click="uploadSelectedFile('bit')"
@@ -65,8 +64,7 @@
             outlined
             dense
             clearable
-            accept=".elf"
-            label="Select ELF File"
+            label="Select File"
           >
             <template #prepend>
               <q-icon name="developer_board" />
@@ -80,7 +78,7 @@
               unelevated
               no-caps
               icon="upload_file"
-              label="Upload ELF"
+              label="Upload File"
               :loading="uploadingType === 'elf'"
               :disable="!elfFile || uploadingType !== null"
               @click="uploadSelectedFile('elf')"
@@ -103,17 +101,84 @@
 
         <section class="surface-block upload-grid__wide">
           <div class="block-head">
-            <h2 class="block-title">Case</h2>
-            <q-badge rounded color="grey-6" text-color="white" label="Later" />
+            <h2 class="block-title">Test Run</h2>
+            <q-badge
+              rounded
+              color="primary"
+              text-color="white"
+              label=".yaml / .yml"
+            />
           </div>
 
-          <div class="blank-state upload-case-placeholder">
-            <div>
-              <div class="blank-state__title">Case upload is not configured yet</div>
-              <div class="blank-state__text">
-                This area is reserved for importing automated test cases later.
-              </div>
+          <p class="block-subtitle">
+            Files uploaded here are saved into <code>artifacts/testruns</code>.
+            YAML files can then be imported into a hardware profile, a test
+            case, and a queued test run.
+          </p>
+
+          <q-file
+            v-model="testrunFile"
+            outlined
+            dense
+            clearable
+            label="Select File"
+          >
+            <template #prepend>
+              <q-icon name="playlist_add_check_circle" />
+            </template>
+          </q-file>
+
+          <div class="button-row">
+            <q-btn
+              color="primary"
+              text-color="white"
+              unelevated
+              no-caps
+              icon="upload_file"
+              label="Upload File"
+              :loading="uploadingType === 'testrun'"
+              :disable="!testrunFile || uploadingType !== null"
+              @click="uploadSelectedFile('testrun')"
+            />
+            <q-btn
+              color="secondary"
+              text-color="white"
+              unelevated
+              no-caps
+              icon="play_arrow"
+              label="Upload And Run"
+              :loading="uploadingType === 'testrun-run'"
+              :disable="!testrunFile || uploadingType !== null"
+              @click="uploadSelectedFile('testrun', true)"
+            />
+            <q-btn
+              outline
+              no-caps
+              color="primary"
+              icon="download"
+              label="下载示例 YAML"
+              tag="a"
+              href="/examples/uart_echo_test.sample.yaml"
+              download="uart_echo_test.sample.yaml"
+            />
+          </div>
+
+          <div
+            v-if="
+              uploadingType === 'testrun' || uploadingType === 'testrun-run'
+            "
+            class="upload-progress"
+          >
+            <div class="upload-progress__meta">
+              <span>{{ uploadProgress[uploadingType] }}%</span>
+              <span>{{ uploadProgressLabel(uploadingType) }}</span>
             </div>
+            <q-linear-progress
+              :value="uploadProgress[uploadingType] / 100"
+              color="primary"
+              track-color="grey-3"
+              rounded
+            />
           </div>
         </section>
 
@@ -139,9 +204,21 @@
                 <q-item v-for="file in uploadedFiles.bit" :key="file.path">
                   <q-item-section>
                     <q-item-label>{{ file.filename }}</q-item-label>
-                    <q-item-label caption>{{ file.path }}</q-item-label>
                   </q-item-section>
-                  <q-item-section side>{{ formatSize(file.size) }}</q-item-section>
+                  <q-item-section side class="upload-file-actions">
+                    <span>{{ formatSize(file.size) }}</span>
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      color="negative"
+                      icon="delete"
+                      :disable="isBusyForActions"
+                      @click="deleteUploadedFile('bit', file.filename)"
+                    >
+                      <q-tooltip>Delete file</q-tooltip>
+                    </q-btn>
+                  </q-item-section>
                 </q-item>
               </q-list>
             </div>
@@ -152,9 +229,59 @@
                 <q-item v-for="file in uploadedFiles.elf" :key="file.path">
                   <q-item-section>
                     <q-item-label>{{ file.filename }}</q-item-label>
-                    <q-item-label caption>{{ file.path }}</q-item-label>
                   </q-item-section>
-                  <q-item-section side>{{ formatSize(file.size) }}</q-item-section>
+                  <q-item-section side class="upload-file-actions">
+                    <span>{{ formatSize(file.size) }}</span>
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      color="negative"
+                      icon="delete"
+                      :disable="isBusyForActions"
+                      @click="deleteUploadedFile('elf', file.filename)"
+                    >
+                      <q-tooltip>Delete file</q-tooltip>
+                    </q-btn>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </div>
+
+            <div>
+              <div class="uploaded-file-heading">Test Runs</div>
+              <q-list bordered separator class="case-list">
+                <q-item v-for="file in uploadedFiles.testrun" :key="file.path">
+                  <q-item-section>
+                    <q-item-label>{{ file.filename }}</q-item-label>
+                  </q-item-section>
+                  <q-item-section side class="upload-file-actions">
+                    <span>{{ formatSize(file.size) }}</span>
+                    <q-btn
+                      flat
+                      dense
+                      no-caps
+                      color="secondary"
+                      icon="play_arrow"
+                      label="Import & Run"
+                      :loading="importingFilename === file.filename"
+                      :disable="
+                        uploadingType !== null || importingFilename !== null
+                      "
+                      @click="importUploadedTestRun(file.filename)"
+                    />
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      color="negative"
+                      icon="delete"
+                      :disable="isBusyForActions"
+                      @click="deleteUploadedFile('testrun', file.filename)"
+                    >
+                      <q-tooltip>Delete file</q-tooltip>
+                    </q-btn>
+                  </q-item-section>
                 </q-item>
               </q-list>
             </div>
@@ -166,10 +293,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useQuasar } from "quasar";
 
-type UploadType = "bit" | "elf";
+type UploadType = "bit" | "elf" | "testrun" | "testrun-run";
+type UploadedFileType = "bit" | "elf" | "testrun";
 
 type UploadedFile = {
   filename: string;
@@ -181,43 +309,79 @@ const $q = useQuasar();
 
 const bitFile = ref<File | null>(null);
 const elfFile = ref<File | null>(null);
+const testrunFile = ref<File | null>(null);
 const uploadingType = ref<UploadType | null>(null);
+const importingFilename = ref<string | null>(null);
+const deletingFileKey = ref<string | null>(null);
 const isLoadingFiles = ref(false);
 const uploadProgress = reactive<Record<UploadType, number>>({
   bit: 0,
-  elf: 0
+  elf: 0,
+  testrun: 0,
+  "testrun-run": 0
 });
 const uploadTransferred = reactive<Record<UploadType, number>>({
   bit: 0,
-  elf: 0
+  elf: 0,
+  testrun: 0,
+  "testrun-run": 0
 });
 const uploadTotals = reactive<Record<UploadType, number>>({
   bit: 0,
-  elf: 0
+  elf: 0,
+  testrun: 0,
+  "testrun-run": 0
 });
 
-const uploadedFiles = reactive<Record<UploadType, UploadedFile[]>>({
+const uploadedFiles = reactive<Record<UploadedFileType, UploadedFile[]>>({
   bit: [],
-  elf: []
+  elf: [],
+  testrun: []
 });
 
-async function uploadSelectedFile(type: UploadType) {
-  const file = type === "bit" ? bitFile.value : elfFile.value;
+const isBusyForActions = computed(
+  () =>
+    uploadingType.value !== null ||
+    importingFilename.value !== null ||
+    deletingFileKey.value !== null
+);
+
+async function uploadSelectedFile(type: UploadType, autoImport = false) {
+  const file =
+    type === "bit"
+      ? bitFile.value
+      : type === "elf"
+        ? elfFile.value
+        : testrunFile.value;
   if (!file) return;
 
-  uploadingType.value = type;
-  uploadProgress[type] = 0;
-  uploadTransferred[type] = 0;
-  uploadTotals[type] = file.size;
+  const uploadType = autoImport ? "testrun-run" : type;
+
+  uploadingType.value = uploadType;
+  uploadProgress[uploadType] = 0;
+  uploadTransferred[uploadType] = 0;
+  uploadTotals[uploadType] = file.size;
 
   try {
-    const result = (await uploadBinaryFile(type, file)) as UploadedFile;
+    const result = (await uploadBinaryFile(
+      type === "testrun-run" ? "testrun" : type,
+      file,
+      uploadType
+    )) as UploadedFile;
     $q.notify({
       type: "positive",
-      message: `Uploaded ${result.path}`
+      message: `Uploaded ${result.filename}`
     });
+    if (autoImport && type === "testrun") {
+      const run = await importUploadedTestRun(result.filename, false);
+      $q.notify({
+        type: "positive",
+        message: `Queued run #${run.id}: ${run.name}`
+      });
+    }
     if (type === "bit") bitFile.value = null;
     if (type === "elf") elfFile.value = null;
+    if (type === "testrun") testrunFile.value = null;
     await loadUploadedFiles();
   } catch (error) {
     $q.notify({
@@ -225,14 +389,18 @@ async function uploadSelectedFile(type: UploadType) {
       message: error instanceof Error ? error.message : "Upload failed"
     });
   } finally {
-    uploadProgress[type] = 0;
-    uploadTransferred[type] = 0;
-    uploadTotals[type] = 0;
+    uploadProgress[uploadType] = 0;
+    uploadTransferred[uploadType] = 0;
+    uploadTotals[uploadType] = 0;
     uploadingType.value = null;
   }
 }
 
-function uploadBinaryFile(type: UploadType, file: File): Promise<UploadedFile> {
+function uploadBinaryFile(
+  type: UploadedFileType,
+  file: File,
+  progressType: UploadType = type
+): Promise<UploadedFile> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open(
@@ -244,9 +412,9 @@ function uploadBinaryFile(type: UploadType, file: File): Promise<UploadedFile> {
 
     request.upload.onprogress = event => {
       if (!event.lengthComputable) return;
-      uploadTransferred[type] = event.loaded;
-      uploadTotals[type] = event.total;
-      uploadProgress[type] = Math.max(
+      uploadTransferred[progressType] = event.loaded;
+      uploadTotals[progressType] = event.total;
+      uploadProgress[progressType] = Math.max(
         0,
         Math.min(100, Math.round((event.loaded / event.total) * 100))
       );
@@ -280,11 +448,88 @@ async function loadUploadedFiles() {
   isLoadingFiles.value = true;
   try {
     const response = await fetch("/api/uploads");
-    const data = (await response.json()) as Record<UploadType, UploadedFile[]>;
+    const data = (await response.json()) as Record<
+      UploadedFileType,
+      UploadedFile[]
+    >;
     uploadedFiles.bit = data.bit ?? [];
     uploadedFiles.elf = data.elf ?? [];
+    uploadedFiles.testrun = data.testrun ?? [];
   } finally {
     isLoadingFiles.value = false;
+  }
+}
+
+async function deleteUploadedFile(type: UploadedFileType, filename: string) {
+  deletingFileKey.value = `${type}:${filename}`;
+  try {
+    const response = await fetch(
+      `/api/uploads/${type}/${encodeURIComponent(filename)}`,
+      {
+        method: "DELETE"
+      }
+    );
+    const data = (await response.json()) as { detail?: string };
+    if (!response.ok) {
+      throw new Error(data.detail || "Delete file failed");
+    }
+    $q.notify({
+      type: "positive",
+      message: `Deleted ${filename}`
+    });
+    await loadUploadedFiles();
+  } catch (error) {
+    $q.notify({
+      type: "negative",
+      message: error instanceof Error ? error.message : "Delete file failed"
+    });
+  } finally {
+    deletingFileKey.value = null;
+  }
+}
+
+type ImportedRun = {
+  id: number;
+  name: string;
+};
+
+async function importUploadedTestRun(filename: string, notify = true) {
+  importingFilename.value = filename;
+  try {
+    const response = await fetch("/api/uploads/testrun/import", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ filename })
+    });
+
+    const data = (await response.json()) as {
+      run?: ImportedRun;
+      detail?: string;
+    };
+
+    if (!response.ok || !data.run) {
+      throw new Error(data.detail || "Import YAML failed");
+    }
+
+    if (notify) {
+      $q.notify({
+        type: "positive",
+        message: `Queued run #${data.run.id}: ${data.run.name}`
+      });
+    }
+    return data.run;
+  } catch (error) {
+    if (notify) {
+      $q.notify({
+        type: "negative",
+        message: error instanceof Error ? error.message : "Import YAML failed"
+      });
+    }
+    throw error;
+  } finally {
+    importingFilename.value = null;
   }
 }
 

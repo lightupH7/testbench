@@ -16,6 +16,10 @@ STEP_SCHEMAS: dict[str, dict[str, list[str]]] = {
         "required_config": ["command"],
         "required_expected": [],
     },
+    "uart_wait": {
+        "required_config": ["contains"],
+        "required_expected": [],
+    },
     "sleep": {
         "required_config": ["seconds"],
         "required_expected": [],

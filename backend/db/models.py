@@ -106,6 +106,7 @@ class TestStep(Model):
     config_json = fields.JSONField(default=dict)
     expected_json = fields.JSONField(default=dict)
     timeout_ms = fields.IntField(default=30000)
+    continue_on_failure = fields.BooleanField(default=False)
 
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)

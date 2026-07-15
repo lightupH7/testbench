@@ -21,9 +21,16 @@ from serial.tools import list_ports
 from backend.api.schemas import (
     CreateTestRunRequest,
     HardwareProfilePayload,
+    ImportUploadedTestRunRequest,
+    JLinkControlRequest,
     ManualExecuteRequest,
     ProgramBitRequest,
     ProgramElfRequest,
+    ScopeChannelRequest,
+    ScopeConnectionRequest,
+    ScopeControlRequest,
+    ScopeMeasureRequest,
+    ScopeWaveformRequest,
     TestCasePayload,
     TestStepPayload,
 )
@@ -31,6 +38,8 @@ from backend.api.serializers import serialize_driver_result, serialize_serial_po
 from backend.core.config import BASE_DIR
 from backend.db.config import DB_PATH
 from backend.drivers.base import DriverResult
+from backend.drivers.jlink_driver import JLinkDriver
+from backend.drivers.scope_driver import ScopeDriver
 from backend.runner import mvp_sqlite
 from backend.runner.step_schemas import StepSchemaError, validate_step_payload
 from backend.services.programming import program_bit as run_program_bit
@@ -47,6 +56,7 @@ from backend.runner.automation import (
     list_step_results_sync,
     run_test_run,
 )
+from backend.runner.yaml_importer import TestRunYamlImportError, import_testrun_yaml_and_enqueue
 
 router = APIRouter(prefix="/api")
 
@@ -58,6 +68,10 @@ UPLOAD_TARGETS = {
     "elf": {
         "directory": BASE_DIR / "artifacts" / "firmware",
         "suffixes": {".elf"},
+    },
+    "testrun": {
+        "directory": BASE_DIR / "artifacts" / "testruns",
+        "suffixes": {".yaml", ".yml"},
     },
 }
 
@@ -282,12 +296,6 @@ async def upload_file(file_type: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="unsupported upload file type")
 
     filename = _upload_filename(request)
-    suffix = Path(filename).suffix.lower()
-    if suffix not in target["suffixes"]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{file_type} upload must use one of: {', '.join(sorted(target['suffixes']))}",
-        )
 
     payload = await request.body()
     if not payload:
@@ -306,6 +314,36 @@ async def upload_file(file_type: str, request: Request) -> dict[str, Any]:
     }
 
 
+@router.delete("/uploads/{file_type}/{filename}")
+async def delete_uploaded_file(file_type: str, filename: str) -> dict[str, Any]:
+    target = UPLOAD_TARGETS.get(file_type)
+    if target is None:
+        raise HTTPException(status_code=404, detail="unsupported upload file type")
+
+    file_path = _safe_upload_path(target["directory"], Path(filename).name)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="uploaded file not found")
+
+    file_path.unlink()
+    return {"ok": True, "filename": file_path.name, "type": file_type}
+
+
+@router.post("/uploads/testrun/import")
+async def import_uploaded_testrun(request: ImportUploadedTestRunRequest) -> dict[str, Any]:
+    target = UPLOAD_TARGETS["testrun"]
+    yaml_path = _safe_upload_path(target["directory"], Path(request.filename).name)
+    try:
+        imported = await asyncio.to_thread(import_testrun_yaml_and_enqueue, yaml_path)
+    except TestRunYamlImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    run = await mvp_sqlite.enqueue_run(
+        profile_id=int(imported["profile"]["id"]),
+        case_id=int(imported["test_case"]["id"]),
+        name=str(imported["run_name"]),
+    )
+    return {**imported, "run": run}
+
+
 @router.post("/program/elf")
 async def program_elf(request: ProgramElfRequest) -> dict[str, Any]:
     result = await asyncio.to_thread(run_program_elf, request)
@@ -317,6 +355,147 @@ async def program_elf(request: ProgramElfRequest) -> dict[str, Any]:
 async def program_bit(request: ProgramBitRequest) -> dict[str, Any]:
     result = await asyncio.to_thread(run_program_bit, request)
     await terminal_broadcast_hub.broadcast(_format_driver_result("program_bit", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/jlink/control")
+async def control_jlink(request: JLinkControlRequest) -> dict[str, Any]:
+    driver = JLinkDriver()
+    try:
+        result = await asyncio.to_thread(
+            driver.control_target,
+            request.action,
+            jlink_lib=request.jlink_lib,
+            jlink_serial=request.jlink_serial,
+            jlink_device=request.jlink_device,
+            interface=request.interface,
+            speed=request.speed,
+            timeout=request.timeout,
+        )
+    finally:
+        driver.close()
+    await terminal_broadcast_hub.broadcast(_format_driver_result("jlink_control", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/scope/control")
+async def control_scope(request: ScopeControlRequest) -> dict[str, Any]:
+    config = {
+        "resource": request.resource or _scope_resource_from_request(request),
+        "visa_backend": request.visa_backend or "@py",
+        "timeout_ms": request.timeout_ms,
+    }
+    driver = ScopeDriver(config=config)
+    try:
+        connect_result = await asyncio.to_thread(driver.connect_if_needed)
+        if not connect_result.success:
+            result = connect_result
+        elif request.action == "check_connection":
+            result = await asyncio.to_thread(driver.check_connection)
+        elif request.action == "read_voltage":
+            result = await asyncio.to_thread(
+                driver.read_voltage,
+                request.channel,
+                request.measurement,
+            )
+        elif request.action == "read_waveform":
+            result = await asyncio.to_thread(
+                driver.read_waveform,
+                request.channel,
+                binary=request.binary,
+                waveform_format=request.waveform_format,
+                datatype=request.datatype,
+            )
+        else:
+            result = await asyncio.to_thread(driver.read_frequency, request.channel)
+    finally:
+        driver.close()
+
+    await terminal_broadcast_hub.broadcast(_format_driver_result("scope_control", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/scope/idn")
+async def scope_idn(request: ScopeConnectionRequest) -> dict[str, Any]:
+    driver = ScopeDriver(config=_scope_driver_config(request))
+    try:
+        result = await asyncio.to_thread(driver.check_connection)
+    finally:
+        driver.close()
+
+    await terminal_broadcast_hub.broadcast(_format_driver_result("scope_idn", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/scope/channel")
+async def scope_channel(request: ScopeChannelRequest) -> dict[str, Any]:
+    driver = ScopeDriver(config=_scope_driver_config(request))
+    try:
+        connect_result = await asyncio.to_thread(driver.connect_if_needed)
+        if not connect_result.success:
+            result = connect_result
+        else:
+            result = await asyncio.to_thread(
+                driver.set_channel,
+                request.channel,
+                enabled=request.enabled,
+                scale=request.scale,
+                offset=request.offset,
+                coupling=request.coupling,
+            )
+    finally:
+        driver.close()
+
+    await terminal_broadcast_hub.broadcast(_format_driver_result("scope_set_channel", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/scope/measure")
+async def scope_measure(request: ScopeMeasureRequest) -> dict[str, Any]:
+    driver = ScopeDriver(config=_scope_driver_config(request))
+    try:
+        connect_result = await asyncio.to_thread(driver.connect_if_needed)
+        if not connect_result.success:
+            result = connect_result
+        else:
+            result = await asyncio.to_thread(
+                driver.read_measurement,
+                request.channel,
+                request.measure,
+            )
+            if result.success:
+                result = _scope_measure_with_expected(result, request)
+    finally:
+        driver.close()
+
+    await terminal_broadcast_hub.broadcast(_format_driver_result("scope_measure", result))
+    return serialize_driver_result(result)
+
+
+@router.post("/scope/waveform")
+async def scope_waveform(request: ScopeWaveformRequest) -> dict[str, Any]:
+    config = {
+        **_scope_driver_config(request),
+        "waveform_points": request.points,
+        "waveform_preview_points": request.preview_points,
+    }
+    driver = ScopeDriver(config=config)
+    try:
+        connect_result = await asyncio.to_thread(driver.connect_if_needed)
+        if not connect_result.success:
+            result = connect_result
+        else:
+            result = await asyncio.to_thread(
+                driver.read_waveform,
+                request.channel,
+                binary=request.binary,
+                waveform_format=request.waveform_format,
+                datatype=request.datatype,
+            )
+    finally:
+        driver.close()
+
+    await terminal_broadcast_hub.broadcast(_format_driver_result("scope_waveform", result))
     return serialize_driver_result(result)
 
 
@@ -525,12 +704,7 @@ def _list_upload_target_files(file_type: str) -> list[dict[str, Any]]:
     if not directory.exists():
         return []
 
-    suffixes = target["suffixes"]
-    files = [
-        path
-        for path in directory.iterdir()
-        if path.is_file() and path.suffix.lower() in suffixes
-    ]
+    files = [path for path in directory.iterdir() if path.is_file()]
     return [
         {
             "filename": path.name,
@@ -539,6 +713,68 @@ def _list_upload_target_files(file_type: str) -> list[dict[str, Any]]:
         }
         for path in sorted(files, key=lambda item: item.name)
     ]
+
+
+def _scope_resource_from_request(request: ScopeControlRequest) -> str:
+    if request.scope_ip:
+        if request.scope_port is not None:
+            return f"TCPIP::{request.scope_ip}::{request.scope_port}::SOCKET"
+        return f"TCPIP::{request.scope_ip}::INSTR"
+    raise HTTPException(status_code=400, detail="scope resource or scope_ip is required")
+
+
+def _scope_driver_config(request: ScopeConnectionRequest) -> dict[str, Any]:
+    return {
+        "resource": request.resource or _scope_resource_from_ip(request.ip, request.port),
+        "visa_backend": request.visa_backend or "@py",
+        "timeout_ms": request.timeout_ms,
+    }
+
+
+def _scope_resource_from_ip(ip: str, port: int | None) -> str:
+    cleaned_ip = str(ip).strip()
+    if not cleaned_ip:
+        raise HTTPException(status_code=400, detail="scope ip is required")
+    if port is not None:
+        return f"TCPIP::{cleaned_ip}::{port}::SOCKET"
+    return f"TCPIP::{cleaned_ip}::INSTR"
+
+
+def _scope_measure_with_expected(
+    result: DriverResult,
+    request: ScopeMeasureRequest,
+) -> DriverResult:
+    data = dict(result.data or {})
+    value = data.get("value")
+    expected = request.expected
+    status = "unknown"
+
+    if expected is not None and (expected.min is not None or expected.max is not None):
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            status = "error"
+        else:
+            lower_ok = expected.min is None or numeric_value >= expected.min
+            upper_ok = expected.max is None or numeric_value <= expected.max
+            status = "passed" if lower_ok and upper_ok else "failed"
+
+    data["status"] = status
+    data["expected"] = expected.model_dump(exclude_none=True) if expected else {}
+    unit = data.get("unit") or ""
+    message = f"{request.measure} = {value} {unit}".strip()
+    if status == "passed":
+        message = f"{message} (PASS)"
+    elif status == "failed":
+        message = f"{message} (FAIL)"
+
+    return DriverResult.ok(
+        message=message,
+        data=data,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        returncode=result.returncode,
+    )
 
 
 def _validate_step_payload_or_400(payload: TestStepPayload) -> None:

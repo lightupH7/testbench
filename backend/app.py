@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -15,6 +16,16 @@ from backend.db.config import DB_PATH, TORTOISE_ORM
 from backend.db.schema_compat import ensure_mvp_schema
 from backend.runner.automation import ensure_default_automation_case
 from backend.runner.mvp_sqlite import initialize_run_queue
+
+FRONTEND_HTML_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+FRONTEND_ASSET_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
 
 
 @asynccontextmanager
@@ -66,13 +77,29 @@ def _frontend_fallback_response() -> Any:
             "frontend": "not-built",
         }
 
-    return FileResponse(FRONTEND_INDEX_FILE)
+    return FileResponse(FRONTEND_INDEX_FILE, headers=FRONTEND_HTML_HEADERS)
+
+
+def _frontend_file_response(path: Path) -> FileResponse:
+    headers = FRONTEND_HTML_HEADERS if path.suffix == ".html" else FRONTEND_ASSET_HEADERS
+    return FileResponse(path, headers=headers)
+
+
+class FrontendAssetsStaticFiles(StaticFiles):
+    def file_response(self, full_path: str, stat_result: Any, scope: Any) -> FileResponse:
+        response = super().file_response(full_path, stat_result, scope)
+        response.headers.update(FRONTEND_ASSET_HEADERS)
+        return response
 
 
 def _mount_frontend(app: FastAPI) -> None:
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+        app.mount(
+            "/assets",
+            FrontendAssetsStaticFiles(directory=assets_dir),
+            name="frontend-assets",
+        )
 
     @app.get("/")
     async def root() -> Any:
@@ -87,10 +114,10 @@ def _mount_frontend(app: FastAPI) -> None:
         try:
             requested_path.relative_to(FRONTEND_DIST_DIR.resolve())
         except ValueError:
-            return FileResponse(FRONTEND_INDEX_FILE)
+            return _frontend_fallback_response()
 
         if full_path and requested_path.is_file():
-            return FileResponse(requested_path)
+            return _frontend_file_response(requested_path)
 
         return _frontend_fallback_response()
 

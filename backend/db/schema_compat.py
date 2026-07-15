@@ -53,6 +53,9 @@ MVP_COLUMNS: dict[str, dict[str, str]] = {
         "finished_at": "datetime",
         "duration_ms": "int",
     },
+    "test_steps": {
+        "continue_on_failure": "int default 0",
+    },
 }
 
 
@@ -103,6 +106,7 @@ def _ensure_test_steps_table(connection: sqlite3.Connection) -> None:
             config_json text not null default '{}',
             expected_json text not null default '{}',
             timeout_ms int not null default 30000,
+            continue_on_failure int not null default 0,
             created_at datetime not null default current_timestamp,
             updated_at datetime not null default current_timestamp,
             case_id int not null references test_cases(id) on delete cascade,

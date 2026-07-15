@@ -65,6 +65,8 @@ async def _execute_step_body(
         return await _program_elf(profile, step)
     if step.step_type == "uart_query":
         return await _uart_query(profile, step)
+    if step.step_type == "uart_wait":
+        return await _uart_wait(profile, step)
     if step.step_type == "sleep":
         return await _sleep(step)
     if step.step_type == "scope_measure":
@@ -176,6 +178,47 @@ async def _uart_query(profile: HardwareProfile, step: TestStep) -> StepExecution
         await asyncio.to_thread(driver.close)
 
 
+async def _uart_wait(profile: HardwareProfile, step: TestStep) -> StepExecutionResult:
+    if not profile.uart_port:
+        return _error("hardware profile uart_port is required")
+
+    config = step.config_json
+    contains = config.get("contains")
+    if contains in (None, ""):
+        return _error("uart_wait contains is required")
+
+    encoding = str(config.get("encoding") or "utf-8")
+    read_timeout = int(config.get("read_timeout_ms") or profile.uart_timeout_ms or 3000) / 1000
+
+    driver = UartDriver(
+        config={
+            "port": profile.uart_port,
+            "baudrate": profile.uart_baudrate,
+            "bytesize": profile.uart_bytesize,
+            "parity": profile.uart_parity,
+            "stopbits": profile.uart_stopbits,
+            "timeout": 0.05,
+            "write_timeout": 1.0,
+        },
+    )
+
+    try:
+        connect_result = await asyncio.to_thread(driver.connect)
+        if not connect_result.success:
+            return StepExecutionResult(connect_result, "error")
+
+        read_result = await asyncio.to_thread(
+            driver.read_until,
+            str(contains),
+            read_timeout,
+            encoding,
+            "replace",
+        )
+        return StepExecutionResult(read_result, None if read_result.success else "failed")
+    finally:
+        await asyncio.to_thread(driver.close)
+
+
 async def _sleep(step: TestStep) -> StepExecutionResult:
     seconds = float(step.config_json["seconds"])
     if seconds < 0:
@@ -199,19 +242,11 @@ async def _scope_measure(profile: HardwareProfile, step: TestStep) -> StepExecut
         if not connect_result.success:
             return StepExecutionResult(connect_result, "error")
 
-        command = _scope_measure_command(channel, measure)
-        result = await asyncio.to_thread(driver.query, command)
+        result = await asyncio.to_thread(driver.read_measurement, channel, measure)
         if not result.success:
             return StepExecutionResult(result, "error")
 
-        try:
-            value = float(str(result.stdout).strip())
-        except ValueError:
-            result.success = False
-            result.message = f"scope returned non-numeric value: {result.stdout!r}"
-            return StepExecutionResult(result, "error")
-
-        result.data = {"channel": channel, "measure": measure.lower(), "value": value}
+        value = float(result.data["value"])
         if not _value_in_expected_range(value, expected):
             result.success = False
             result.message = "scope measurement out of expected range"
@@ -264,10 +299,6 @@ def _scope_resource(profile: HardwareProfile) -> str | None:
     if profile.scope_port:
         return f"TCPIP::{profile.scope_ip}::{profile.scope_port}::SOCKET"
     return f"TCPIP::{profile.scope_ip}::INSTR"
-
-
-def _scope_measure_command(channel: str, measure: str) -> str:
-    return f":MEASure:{measure}? {channel}"
 
 
 def _value_in_expected_range(value: float, expected: dict[str, Any]) -> bool:

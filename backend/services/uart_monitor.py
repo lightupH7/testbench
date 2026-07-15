@@ -50,11 +50,24 @@ class UartMonitorSession:
 
         await self.close(send_status=False)
 
+        try:
+            baudrate = int(message.get("baudrate") or 115200)
+            bytesize = int(message.get("bytesize") or 8)
+            parity = str(message.get("parity") or "N").upper()
+            stopbits = float(message.get("stopbits") or 1.0)
+        except (TypeError, ValueError):
+            await self.send_error("invalid uart parameters")
+            return
+
         config = {
             "port": port,
-            "baudrate": int(message.get("baudrate") or 115200),
+            "baudrate": baudrate,
+            "bytesize": bytesize,
+            "parity": parity,
+            "stopbits": stopbits,
             "timeout": 0.05,
             "write_timeout": 1.0,
+            "exclusive": bool(message.get("exclusive", True)),
         }
         self.driver = UartDriver(config=config)
         result = await asyncio.to_thread(self.driver.connect)
@@ -62,6 +75,10 @@ class UartMonitorSession:
 
         if result.success:
             self._reader_task = asyncio.create_task(self._read_loop())
+            return
+
+        self.driver = None
+        await self.websocket.send_json({"type": "status", "state": "closed"})
 
     async def write(self, message: dict[str, Any]) -> None:
         if self.driver is None or not self.driver.is_connected():
@@ -84,8 +101,11 @@ class UartMonitorSession:
                 payload,
                 TEXT_ENCODING,
                 append_newline,
-            )
+        )
         await self.send_result("write", result)
+        if not result.success:
+            await self.close(send_status=False)
+            await self.websocket.send_json({"type": "status", "state": "closed"})
 
     async def close(self, *, send_status: bool = True) -> None:
         if self._reader_task is not None:
@@ -114,6 +134,7 @@ class UartMonitorSession:
     async def _read_loop(self) -> None:
         buffer = bytearray()
         last_flush = time.monotonic()
+        should_notify_closed = True
         try:
             while self.driver is not None and self.driver.is_connected():
                 async with self._io_lock:
@@ -146,6 +167,7 @@ class UartMonitorSession:
                 if not chunk:
                     await asyncio.sleep(0.01)
         except asyncio.CancelledError:
+            should_notify_closed = False
             raise
         except Exception as exc:  # noqa: BLE001
             await self.send_error(f"uart read loop crashed: {exc}")
@@ -156,6 +178,8 @@ class UartMonitorSession:
                 async with self._io_lock:
                     await asyncio.to_thread(self.driver.close)
                 self.driver = None
+            if should_notify_closed:
+                await self.websocket.send_json({"type": "status", "state": "closed"})
 
     async def send_data(self, payload: bytes) -> None:
         await self.websocket.send_json(
@@ -174,6 +198,7 @@ class UartMonitorSession:
             "action": action,
             "success": result.success,
             "message": result.message,
+            "timestamp": time.time(),
             "stdout": result.stdout,
             "stderr": result.stderr,
             "returncode": result.returncode,

@@ -30,6 +30,66 @@ class ProgramBitRequest(BaseModel):
     keep_tcl: bool = False
 
 
+class JLinkControlRequest(BaseModel):
+    action: Literal["reset_run", "reset_halt", "resume"]
+    jlink_lib: str | None = None
+    jlink_serial: str | None = None
+    jlink_device: str | None = "RISC-V"
+    interface: str = "JTAG"
+    speed: int = 4000
+    timeout: int = 30
+
+
+class ScopeControlRequest(BaseModel):
+    action: Literal["check_connection", "read_voltage", "read_waveform", "read_frequency"]
+    resource: str | None = None
+    scope_ip: str | None = None
+    scope_port: int | None = None
+    channel: str = "CH1"
+    measurement: str = "VPP"
+    binary: bool = True
+    waveform_format: str = "BYTE"
+    datatype: str = "B"
+    visa_backend: str | None = None
+    timeout_ms: int = 5000
+
+
+class ScopeConnectionRequest(BaseModel):
+    ip: str
+    port: int = 5025
+    timeout_ms: int = 5000
+    resource: str | None = None
+    visa_backend: str | None = None
+
+
+class ScopeChannelRequest(ScopeConnectionRequest):
+    channel: Literal["CH1", "CH2", "CH3", "CH4"] = "CH1"
+    enabled: bool = True
+    scale: float = 0.5
+    offset: float = 0
+    coupling: Literal["DC", "AC", "GND"] = "DC"
+
+
+class ScopeExpectedRange(BaseModel):
+    min: float | None = None
+    max: float | None = None
+
+
+class ScopeMeasureRequest(ScopeConnectionRequest):
+    channel: Literal["CH1", "CH2", "CH3", "CH4"] = "CH1"
+    measure: Literal["vpp", "vmax", "vmin", "vrms", "vavg", "freq", "period", "duty"] = "vpp"
+    expected: ScopeExpectedRange | None = None
+
+
+class ScopeWaveformRequest(ScopeConnectionRequest):
+    channel: Literal["CH1", "CH2", "CH3", "CH4"] = "CH1"
+    points: int = Field(default=1200, ge=1, le=20000)
+    preview_points: int = Field(default=240, ge=1, le=1000)
+    waveform_format: Literal["BYTE", "WORD", "ASCii"] = "BYTE"
+    binary: bool = True
+    datatype: str = "B"
+
+
 class ManualExecuteRequest(BaseModel):
     action: Literal["program_bit", "program_elf", "program_all"]
     hardware_profile_id: int | None = None
@@ -51,6 +111,10 @@ class CreateTestRunRequest(BaseModel):
     test_case_id: int | None = None
     selected_case_ids: list[int] | None = None
     config_overrides: dict[str, object] | None = None
+
+
+class ImportUploadedTestRunRequest(BaseModel):
+    filename: str
 
 
 class HardwareProfilePayload(BaseModel):
@@ -91,3 +155,4 @@ class TestStepPayload(BaseModel):
     config_json: dict[str, Any] = Field(default_factory=dict)
     expected_json: dict[str, Any] = Field(default_factory=dict)
     timeout_ms: int = 30000
+    continue_on_failure: bool = False

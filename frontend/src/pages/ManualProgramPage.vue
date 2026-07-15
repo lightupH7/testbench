@@ -48,6 +48,7 @@
               clearable
               label="Bit File"
               :options="filteredBitOptions"
+              :display-value="selectedFileName(form.bit_file)"
               @filter="filterBitOptions"
             />
 
@@ -65,6 +66,7 @@
               clearable
               label="ELF File"
               :options="filteredElfOptions"
+              :display-value="selectedFileName(form.elf_file)"
               @filter="filterElfOptions"
             />
 
@@ -401,12 +403,17 @@ const stderrText = computed(() => {
 });
 
 const jsonText = computed(() => {
-  if (responseView.value) return JSON.stringify(responseView.value, null, 2);
+  if (responseView.value)
+    return JSON.stringify(
+      sanitizeFilePathsForDisplay(responseView.value),
+      null,
+      2
+    );
   if (pendingPayload.value) {
     return JSON.stringify(
       {
         status: isSubmitting.value ? "running" : "pending",
-        request: pendingPayload.value
+        request: sanitizeFilePathsForDisplay(pendingPayload.value)
       },
       null,
       2
@@ -421,11 +428,42 @@ function sanitizedPayload() {
   );
 }
 
-function normalizeFileOptions(files: Array<{ filename: string; path: string }>) {
+function normalizeFileOptions(
+  files: Array<{ filename: string; path: string }>
+) {
   return files.map(file => ({
     label: file.filename,
     value: file.path
   }));
+}
+
+function selectedFileName(value: string | null | undefined) {
+  if (!value) return "";
+  const option = [...bitOptions.value, ...elfOptions.value].find(
+    item => item.value === value
+  );
+  return option?.label ?? fileName(value);
+}
+
+function fileName(value: string) {
+  return value.split(/[\\/]/).filter(Boolean).pop() ?? value;
+}
+
+function sanitizeFilePathsForDisplay(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeFilePathsForDisplay);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (
+        typeof item === "string" &&
+        ["bit_file", "elf_file", "bit_path", "elf_path"].includes(key)
+      ) {
+        return [key, fileName(item)];
+      }
+      return [key, sanitizeFilePathsForDisplay(item)];
+    })
+  );
 }
 
 function filterBitOptions(

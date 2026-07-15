@@ -8,8 +8,7 @@ const routes: RouteRecordRaw[] = [
       { path: "", component: () => import("@/pages/IndexPage.vue") },
       {
         path: "manual",
-        component: () => import("@/pages/ManualProgramPage.vue"),
-        meta: { keepAlive: true }
+        redirect: "/monitor"
       },
       {
         path: "upload",
@@ -29,6 +28,11 @@ const routes: RouteRecordRaw[] = [
       {
         path: "monitor",
         component: () => import("@/pages/MonitorPage.vue"),
+        meta: { keepAlive: true }
+      },
+      {
+        path: "scope",
+        component: () => import("@/pages/ScopeDebugPage.vue"),
         meta: { keepAlive: true }
       }
     ]

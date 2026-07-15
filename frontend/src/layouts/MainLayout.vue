@@ -46,10 +46,10 @@
 <script setup lang="ts">
 const navItems = [
   { label: "主页面", to: "/", icon: "home" },
-  { label: "手动烧录界面", to: "/manual", icon: "memory" },
   { label: "上传文件", to: "/upload", icon: "upload_file" },
   { label: "自动化测试", to: "/automation", icon: "fact_check" },
   { label: "测试记录", to: "/records", icon: "history" },
-  { label: "监视器界面", to: "/monitor", icon: "terminal" }
+  { label: "控制台", to: "/monitor", icon: "terminal" },
+  { label: "示波器调试", to: "/scope", icon: "monitor_heart" }
 ];
 </script>

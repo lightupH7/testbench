@@ -10,7 +10,14 @@
         <section class="surface-block">
           <div class="block-head">
             <h2 class="block-title">Runs</h2>
-            <q-btn flat round icon="refresh" color="primary" :loading="isLoadingRuns" @click="loadRuns">
+            <q-btn
+              flat
+              round
+              icon="refresh"
+              color="primary"
+              :loading="isLoadingRuns"
+              @click="loadRuns"
+            >
               <q-tooltip>刷新记录</q-tooltip>
             </q-btn>
           </div>
@@ -26,11 +33,18 @@
             >
               <q-item-section>
                 <q-item-label>{{ run.name || `Run #${run.id}` }}</q-item-label>
-                <q-item-label caption>{{ formatTimestamp(run.created_at) }}</q-item-label>
+                <q-item-label caption>{{
+                  formatTimestamp(run.created_at)
+                }}</q-item-label>
               </q-item-section>
               <q-item-section side>
                 <div class="records-run-side">
-                  <q-badge rounded :color="runBadgeColor(run.status)" text-color="white" :label="run.status" />
+                  <q-badge
+                    rounded
+                    :color="runBadgeColor(run.status)"
+                    text-color="white"
+                    :label="run.status"
+                  />
                   <q-btn
                     v-if="canStop(run.status)"
                     flat
@@ -53,7 +67,9 @@
             <h2 class="block-title">Details</h2>
             <q-badge
               rounded
-              :color="selectedRun ? runBadgeColor(selectedRun.status) : 'grey-6'"
+              :color="
+                selectedRun ? runBadgeColor(selectedRun.status) : 'grey-6'
+              "
               text-color="white"
               :label="selectedRun?.status ?? 'Idle'"
             />
@@ -62,21 +78,47 @@
           <div v-if="!selectedRun" class="blank-state records-placeholder">
             <div>
               <div class="blank-state__title">No record selected</div>
-              <div class="blank-state__text">Pick a run from the list to inspect it.</div>
+              <div class="blank-state__text"
+                >Pick a run from the list to inspect it.</div
+              >
             </div>
           </div>
 
           <div v-else class="records-detail">
             <div class="records-summary">
-              <div><strong>Name:</strong> {{ selectedRun.name || `Run #${selectedRun.id}` }}</div>
+              <div
+                ><strong>Name:</strong>
+                {{ selectedRun.name || `Run #${selectedRun.id}` }}</div
+              >
               <div><strong>Status:</strong> {{ selectedRun.status }}</div>
-              <div><strong>Summary:</strong> {{ selectedRun.summary || "None" }}</div>
-              <div><strong>Duration:</strong> {{ selectedRun.duration_ms ?? 0 }} ms</div>
-              <div><strong>Progress:</strong> {{ selectedRun.progress_percent ?? 0 }}%</div>
-              <div><strong>Started:</strong> {{ formatTimestamp(selectedRun.started_at) }}</div>
-              <div><strong>Finished:</strong> {{ formatTimestamp(selectedRun.finished_at) }}</div>
-              <div><strong>Profile:</strong> {{ selectedRun.hardware_profile_id ?? "None" }}</div>
-              <div><strong>Case:</strong> {{ selectedRun.test_case_id ?? "None" }}</div>
+              <div
+                ><strong>Summary:</strong>
+                {{ selectedRun.summary || "None" }}</div
+              >
+              <div
+                ><strong>Duration:</strong>
+                {{ selectedRun.duration_ms ?? 0 }} ms</div
+              >
+              <div
+                ><strong>Progress:</strong>
+                {{ selectedRun.progress_percent ?? 0 }}%</div
+              >
+              <div
+                ><strong>Started:</strong>
+                {{ formatTimestamp(selectedRun.started_at) }}</div
+              >
+              <div
+                ><strong>Finished:</strong>
+                {{ formatTimestamp(selectedRun.finished_at) }}</div
+              >
+              <div
+                ><strong>Profile:</strong>
+                {{ selectedRun.hardware_profile_id ?? "None" }}</div
+              >
+              <div
+                ><strong>Case:</strong>
+                {{ selectedRun.test_case_id ?? "None" }}</div
+              >
             </div>
 
             <q-linear-progress
@@ -86,35 +128,70 @@
               class="execution-progress"
             />
 
-            <q-tabs v-model="activeTab" dense active-color="primary" indicator-color="primary" no-caps>
+            <q-tabs
+              v-model="activeTab"
+              dense
+              active-color="primary"
+              indicator-color="primary"
+              no-caps
+            >
               <q-tab name="steps" label="Step Results" />
               <q-tab name="snapshots" label="Snapshots" />
             </q-tabs>
 
             <q-tab-panels v-model="activeTab" animated class="log-tabs">
               <q-tab-panel name="steps" class="log-tabs__panel records-panel">
-                <div v-if="!selectedRun.steps.length" class="records-empty">No step results recorded.</div>
+                <div v-if="!selectedRun.steps.length" class="records-empty"
+                  >No step results recorded.</div
+                >
                 <div v-else class="step-stack">
-                  <article v-for="step in selectedRun.steps" :key="step.id" class="step-item">
+                  <article
+                    v-for="step in selectedRun.steps"
+                    :key="step.id"
+                    class="step-item"
+                  >
                     <div class="step-item__head">
-                      <strong>{{ step.order_index }}. {{ step.step_name || step.name }}</strong>
-                      <q-badge rounded :color="runBadgeColor(step.status)" text-color="white" :label="step.status" />
+                      <strong
+                        >{{ step.order_index }}.
+                        {{ step.step_name || step.name }}</strong
+                      >
+                      <q-badge
+                        rounded
+                        :color="runBadgeColor(step.status)"
+                        text-color="white"
+                        :label="step.status"
+                      />
                     </div>
-                    <div class="step-item__body">{{ step.message || step.step_type || step.type }}</div>
-                    <pre v-if="step.stdout || step.stderr" class="log-console step-output">{{ [step.stdout, step.stderr].filter(Boolean).join('\n') }}</pre>
+                    <div class="step-item__body">{{
+                      step.message || step.step_type || step.type
+                    }}</div>
+                    <pre
+                      v-if="step.stdout || step.stderr"
+                      class="log-console step-output"
+                      >{{
+                        [step.stdout, step.stderr].filter(Boolean).join("\n")
+                      }}</pre
+                    >
                   </article>
                 </div>
               </q-tab-panel>
 
-              <q-tab-panel name="snapshots" class="log-tabs__panel records-panel">
+              <q-tab-panel
+                name="snapshots"
+                class="log-tabs__panel records-panel"
+              >
                 <div class="snapshot-grid">
                   <div>
                     <div class="uploaded-file-heading">Hardware Profile</div>
-                    <pre class="log-console records-log">{{ stringify(selectedRun.profile_snapshot_json) }}</pre>
+                    <pre class="log-console records-log">{{
+                      stringify(selectedRun.profile_snapshot_json)
+                    }}</pre>
                   </div>
                   <div>
                     <div class="uploaded-file-heading">Test Case</div>
-                    <pre class="log-console records-log">{{ stringify(selectedRun.case_snapshot_json) }}</pre>
+                    <pre class="log-console records-log">{{
+                      stringify(selectedRun.case_snapshot_json)
+                    }}</pre>
                   </div>
                 </div>
               </q-tab-panel>
@@ -215,7 +292,9 @@ function canStop(status: string) {
 }
 
 async function stopRun(runId: number) {
-  const response = await fetch(`/api/test-runs/${runId}/stop`, { method: "POST" });
+  const response = await fetch(`/api/test-runs/${runId}/stop`, {
+    method: "POST"
+  });
   if (!response.ok) return;
   await loadRuns();
   if (selectedRunId.value === runId) {
@@ -251,7 +330,28 @@ async function refreshSelectedRun() {
 
 function stringify(value: unknown) {
   if (value === null || value === undefined) return "No snapshot.";
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(sanitizeFilePathsForDisplay(value), null, 2);
+}
+
+function sanitizeFilePathsForDisplay(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeFilePathsForDisplay);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (
+        typeof item === "string" &&
+        ["bit_file", "elf_file", "bit_path", "elf_path"].includes(key)
+      ) {
+        return [key, fileName(item)];
+      }
+      return [key, sanitizeFilePathsForDisplay(item)];
+    })
+  );
+}
+
+function fileName(value: string) {
+  return value.split(/[\\/]/).filter(Boolean).pop() ?? value;
 }
 
 onMounted(() => {
